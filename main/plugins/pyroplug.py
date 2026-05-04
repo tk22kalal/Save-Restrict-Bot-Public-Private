@@ -170,26 +170,36 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n):
                 #await client.edit_message_text(sender, edit_id, f"message dosnt exist \n{msg.empty}")
                 return None            
             
-            if msg.media and msg.media==MessageMediaType.WEB_PAGE:
-                a = b = True
-                edit = await client.edit_message_text(sender, edit_id, "Cloning.")
-                if '--'  in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html or '`' in msg.text.html:
-                    await send_message_with_chat_id(client, sender, msg.text.html, parse_mode=ParseMode.HTML)
-                    a = False
-                if '<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown  or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<spoiler>' in msg.text.markdown or '<a href=>' in msg.text.markdown or '<pre' in msg.text.markdown or '<code>' in msg.text.markdown or '<emoji' in msg.text.markdown:
-                    await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
-                    b = False
-                if a and b:
-                    await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
-                await edit.delete()
-                return None
+            # Handle WEB_PAGE media type gracefully
+            if msg.media:
+                try:
+                    if msg.media == MessageMediaType.WEB_PAGE:
+                        a = b = True
+                        edit = await client.edit_message_text(sender, edit_id, "Cloning.")
+                        if msg.text and hasattr(msg.text, 'html'):
+                            if '--'  in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html or '`' in msg.text.html:
+                                await send_message_with_chat_id(client, sender, msg.text.html, parse_mode=ParseMode.HTML)
+                                a = False
+                        if msg.text and hasattr(msg.text, 'markdown'):
+                            if '<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown  or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<spoiler>' in msg.text.markdown:
+                                await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
+                                b = False
+                        if a and b and msg.text:
+                            await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
+                        await edit.delete()
+                        return None
+                except Exception as e:
+                    logging.error(f"Error handling WEB_PAGE media: {str(e)}")
+                    await client.edit_message_text(sender, edit_id, "Could not clone this message type. It might contain restricted content.")
+                    return None
+            
             if not msg.media and msg.text:
                 a = b = True
                 edit = await client.edit_message_text(sender, edit_id, "Cloning.")
-                if '--'  in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html or '`' in msg.text.html:
+                if hasattr(msg.text, 'html') and ('--'  in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html or '`' in msg.text.html):
                     await send_message_with_chat_id(client, sender, msg.text.html, parse_mode=ParseMode.HTML)
                     a = False
-                if '<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown  or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<spoiler>' in msg.text.markdown or '<a href=>' in msg.text.markdown or '<pre' in msg.text.markdown or '<code>' in msg.text.markdown or '<emoji' in msg.text.markdown:
+                if hasattr(msg.text, 'markdown') and ('<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown  or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<spoiler>' in msg.text.markdown):
                     await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
                     b = False
                 if a and b:
@@ -339,26 +349,36 @@ async def ggn_new(userbot, client, sender, edit_id, msg_link, i, file_n):
                 #await client.edit_message_text(sender, edit_id, f"message dosnt exist \n{msg.empty}")
                 return None            
             
-            if msg.media and msg.media==MessageMediaType.WEB_PAGE:
-                a = b = True
-                edit = await client.edit_message_text(sender, edit_id, "Cloning.")
-                if '--'  in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html or '`' in msg.text.html:
-                    await send_message_with_chat_id(client, sender, msg.text.html, parse_mode=ParseMode.HTML)
-                    a = False
-                if '<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown  or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<spoiler>' in msg.text.markdown or '<a href=>' in msg.text.markdown or '<pre' in msg.text.markdown or '<code>' in msg.text.markdown or '<emoji' in msg.text.markdown:
-                    await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
-                    b = False
-                if a and b:
-                    await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
-                await edit.delete()
-                return None
+            # Handle WEB_PAGE media type gracefully
+            if msg.media:
+                try:
+                    if msg.media == MessageMediaType.WEB_PAGE:
+                        a = b = True
+                        edit = await client.edit_message_text(sender, edit_id, "Cloning.")
+                        if msg.text and hasattr(msg.text, 'html'):
+                            if '--'  in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html or '`' in msg.text.html:
+                                await send_message_with_chat_id(client, sender, msg.text.html, parse_mode=ParseMode.HTML)
+                                a = False
+                        if msg.text and hasattr(msg.text, 'markdown'):
+                            if '<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown  or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<spoiler>' in msg.text.markdown:
+                                await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
+                                b = False
+                        if a and b and msg.text:
+                            await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
+                        await edit.delete()
+                        return None
+                except Exception as e:
+                    logging.error(f"Error handling WEB_PAGE media: {str(e)}")
+                    await client.edit_message_text(sender, edit_id, "Could not clone this message type. It might contain restricted content.")
+                    return None
+            
             if not msg.media and msg.text:
                 a = b = True
                 edit = await client.edit_message_text(sender, edit_id, "Cloning.")
-                if '--'  in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html or '`' in msg.text.html:
+                if hasattr(msg.text, 'html') and ('--'  in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html or '`' in msg.text.html):
                     await send_message_with_chat_id(client, sender, msg.text.html, parse_mode=ParseMode.HTML)
                     a = False
-                if '<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown  or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<spoiler>' in msg.text.markdown or '<a href=>' in msg.text.markdown or '<pre' in msg.text.markdown or '<code>' in msg.text.markdown or '<emoji' in msg.text.markdown:
+                if hasattr(msg.text, 'markdown') and ('<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown  or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<spoiler>' in msg.text.markdown):
                     await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
                     b = False
                 if a and b:
@@ -468,4 +488,4 @@ async def ggn_new(userbot, client, sender, edit_id, msg_link, i, file_n):
         chat =  msg_link.split("/")[-2]
         await copy_message_with_chat_id(client, sender, chat, msg_id)
         await edit.delete()
-        return None   
+        return None
