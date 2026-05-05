@@ -345,16 +345,8 @@ async def _run_batch(acc, client, sender, chat_ref, start_msg: int, end_msg: int
 
         # Sleep between messages (except after the last one)
         if msg_id < end_msg:
-            wait = 5 if saved < 25 else (10 if saved < 50 else 15)
-            note = await client.send_message(
-                sender,
-                f"⏳ Sleeping `{wait}s`… ({saved} saved / {skipped} skipped)"
-            )
+            wait = 3 if saved < 25 else (5 if saved < 50 else 8)
             await asyncio.sleep(wait)
-            try:
-                await note.delete()
-            except Exception:
-                pass
 
     # Done
     try:
