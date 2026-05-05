@@ -173,6 +173,12 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n):
         await client.edit_message_text(sender, edit_id, "**Invalid Link!**")
         return None
     if 't.me/c/' in msg_link or 't.me/b/' in msg_link:
+        if userbot is None:
+            await client.edit_message_text(
+                sender, edit_id,
+                "❌ No session to access this restricted channel.\nUse /login to authenticate."
+            )
+            return None
         if "t.me/b" not in msg_link:
             chat = int('-100' + str(msg_link.split("/")[-2]))
         else:
