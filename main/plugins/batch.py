@@ -80,8 +80,6 @@ def _parse_supergroup_link(link: str):
     Returns (chat_id_with_minus100, topic_id, start_msg, end_msg) or None.
     end_msg == start_msg when no range is given.
     """
-    # Must have at least CHATID/TOPICID/MSGID  (7 parts when split by '/')
-    # Typical: https://t.me/c/3281835444/9212/9507  or .../9507-9550
     if "t.me/c/" not in link:
         return None
 
@@ -259,6 +257,12 @@ async def _bulk(event):
             "A batch is already running. Use /cancel to stop it first."
         )
 
+    # Safe defaults — must be defined before the with-block in case of exception
+    supergroup_parsed = None
+    chat_id = topic_id = start_msg = end_msg = None
+    _link = ""
+    cd = None
+
     async with gagan.conversation(event.chat_id, timeout=120) as conv:
         try:
             await conv.send_message(
@@ -314,11 +318,10 @@ async def _bulk(event):
 
                 active_batches[user_id] = False
                 await conv.send_message(
-                    f"🚀 Starting supergroup topic batch\n"
+                    f"🚀 **Starting supergroup topic batch**\n"
                     f"Chat: `{chat_id}` | Topic: `{topic_id}`\n"
                     f"Range: `{start_msg}` → `{end_msg}` ({total} msg IDs)\n\n"
-                    f"Use /cancel to stop.",
-                    buttons=[[Button.url("Join Channel", url="https://t.me/devggn")]]
+                    f"Use /cancel to stop."
                 )
 
             else:
@@ -356,8 +359,7 @@ async def _bulk(event):
                 save_batch_data(batch_data)
 
                 cd = await conv.send_message(
-                    "**Batch process ongoing...**\n\nProcess completed: 0",
-                    buttons=[[Button.url("Join Channel", url="https://t.me/devggn")]]
+                    "**Batch process ongoing...**\n\nProcess completed: 0"
                 )
 
         except asyncio.TimeoutError:
@@ -400,8 +402,9 @@ async def _bulk(event):
         save_ids_data(ids_data)
         return await Bot.send_message(
             user_id,
-            "❌ No user session available.\n"
-            "Use /login to log in with your phone number first."
+            "❌ **No user session found.**\n\n"
+            "The batch needs a Telegram user account to access restricted content.\n\n"
+            "👉 Send /login to authenticate with your phone number, then try /batch again."
         )
 
     # ── Run the appropriate batch ─────────────────────────────────────────────
@@ -470,10 +473,7 @@ async def r_batch(acc, client, sender, countdown, link):
                 sender,
                 f"Sleeping for `{timer}` seconds to avoid FloodWait..."
             )
-            await countdown.edit(
-                count_down,
-                buttons=[[Button.url("Join Channel", url="https://t.me/devggn")]]
-            )
+            await countdown.edit(count_down)
             await asyncio.sleep(timer)
             await protection.delete()
 
@@ -502,16 +502,10 @@ async def r_batch(acc, client, sender, countdown, link):
                 except Exception as e:
                     logger.info(e)
                 if countdown.text != count_down:
-                    await countdown.edit(
-                        count_down,
-                        buttons=[[Button.url("Join Channel", url="https://t.me/devggn")]]
-                    )
+                    await countdown.edit(count_down)
         except Exception as e:
             if countdown.text != count_down:
-                await countdown.edit(
-                    count_down,
-                    buttons=[[Button.url("Join Channel", url="https://t.me/devggn")]]
-                )
+                await countdown.edit(count_down)
 
         n = i + 1
         if n == len(ids_data[str(sender)]):
@@ -538,8 +532,7 @@ async def run_supergroup_topic_batch(
         f"🔍 **Supergroup Topic Batch Started**\n"
         f"Chat: `{chat_id}` | Topic: `{topic_id}`\n"
         f"Range: `{start_msg}` → `{end_msg}` ({total_range} IDs)\n\n"
-        f"⏳ Starting...",
-        buttons=[[Button.url("Join Channel", url="https://t.me/devggn")]]
+        f"⏳ Starting..."
     )
 
     for msg_id in range(start_msg, end_msg + 1):
@@ -554,8 +547,7 @@ async def run_supergroup_topic_batch(
                 f"Chat: `{chat_id}` | Topic: `{topic_id}`\n"
                 f"Range: `{start_msg}` → `{end_msg}`\n\n"
                 f"📌 **Current Msg ID:** `{msg_id}`\n"
-                f"✅ Saved: `{processed}` | ⏭️ Skipped: `{skipped}`",
-                buttons=[[Button.url("Join Channel", url="https://t.me/devggn")]]
+                f"✅ Saved: `{processed}` | ⏭️ Skipped: `{skipped}`"
             )
         except Exception:
             pass
@@ -653,8 +645,7 @@ async def run_supergroup_topic_batch(
                 f"Chat: `{chat_id}` | Topic: `{topic_id}`\n"
                 f"Range: `{start_msg}` → `{end_msg}`\n\n"
                 f"📦 **Saved:** `{processed}`\n"
-                f"⏭️ **Skipped** (other topic / empty): `{skipped}`",
-                buttons=[[Button.url("Join Channel", url="https://t.me/devggn")]]
+                f"⏭️ **Skipped** (other topic / empty): `{skipped}`"
             )
         except Exception:
             await client.send_message(
