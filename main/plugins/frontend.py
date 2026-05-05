@@ -1,12 +1,17 @@
 import time
 import os
-import logging
 import json
+import logging
+import asyncio
+
 from telethon import events
+from pyrogram import Client
 from pyrogram.errors import FloodWait
+
 from .. import bot as gagan
 from .. import userbot, Bot
 from .. import FORCESUB as fs
+from .. import API_ID, API_HASH
 from main.plugins.pyroplug import get_msg, ggn_new
 from main.plugins.helpers import get_link, join, screenshot
 from main.plugins.helpers import force_sub
@@ -30,16 +35,24 @@ commands = ['/dl', '/batch', '/cancel', '/login', '/logout', '/mysession',
 
 
 def _is_range_link(link: str) -> bool:
-    """
-    Return True if the last URL segment looks like a batch range (e.g. 23-25).
-    These are not valid single-message links — they belong to /batch conversations.
-    """
+    """Return True if the last URL segment is a batch range like 23-25."""
     last = link.rstrip("/").split("/")[-1].replace("?single", "")
-    # A range segment contains a dash between two numbers: e.g. "23-25"
     if "-" in last:
         parts = last.split("-", 1)
         return parts[0].isdigit() and parts[1].isdigit()
     return False
+
+
+def _read_user_session(user_id) -> str | None:
+    """Read per-user session string from JSON (no cross-plugin import)."""
+    path = "user_sessions.json"
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                return json.load(f).get(str(user_id))
+        except Exception:
+            return None
+    return None
 
 
 @gagan.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
@@ -47,7 +60,7 @@ async def clone(event):
     logging.info(event)
     file_name = ''
 
-    # Skip commands
+    # Skip all bot commands
     if event.message.text and any(
         event.message.text.strip().startswith(cmd) for cmd in commands
     ):
@@ -74,7 +87,6 @@ async def clone(event):
             return
 
         # Skip batch range links (e.g. t.me/c/CHAT/TOPIC/23-25)
-        # These are consumed by the /batch conversation handler, not here
         if _is_range_link(link):
             return
 
@@ -98,6 +110,37 @@ async def clone(event):
         if file_name is not None:
             file_name = file_name.strip()
 
+        # ── Resolve which Pyrogram client to use ──────────────────────────────
+        # Priority: global userbot → user's /login session → error
+        acc = userbot
+        tmp_client = None
+
+        if acc is None:
+            sess = _read_user_session(event.sender_id)
+            if sess:
+                try:
+                    tmp_client = Client(
+                        f"tmp_{event.sender_id}",
+                        session_string=sess,
+                        api_id=int(API_ID),
+                        api_hash=API_HASH,
+                        in_memory=True
+                    )
+                    await tmp_client.start()
+                    acc = tmp_client
+                except Exception as e:
+                    logger.warning(f"Could not start personal session for {event.sender_id}: {e}")
+                    acc = None
+
+        if acc is None and 't.me/c/' in link:
+            await edit.edit(
+                "❌ No session available to access restricted content.\n"
+                "Use /login to log in with your Telegram account."
+            )
+            ind = user.index(f'{int(event.sender_id)}')
+            user.pop(ind)
+            return
+
         try:
             if 't.me/' not in link:
                 await edit.edit("invalid link")
@@ -106,7 +149,8 @@ async def clone(event):
                 return
 
             if 't.me/+' in link:
-                q = await join(userbot, link)
+                _client = acc if acc else Bot
+                q = await join(_client, link)
                 await edit.edit(q)
                 ind = user.index(f'{int(event.sender_id)}')
                 user.pop(int(ind))
@@ -123,7 +167,10 @@ async def clone(event):
                     else:
                         msg_id = -1
                 m = msg_id
-                await ggn_new(userbot, Bot, event.sender_id, edit.id, link, m, file_name)
+
+                # Use acc (personal or global userbot) for restricted content
+                _acc = acc if acc else userbot
+                await ggn_new(_acc, Bot, event.sender_id, edit.id, link, m, file_name)
 
         except FloodWait as fw:
             await gagan.send_message(event.sender_id, f'Try again after {fw.value} seconds due to floodwait from telegram.')
@@ -132,6 +179,12 @@ async def clone(event):
             logging.info(e)
             await gagan.send_message(event.sender_id, f"An error occurred during cloning of `{link}`\n\n**Error:** {str(e)}")
             await edit.delete()
+        finally:
+            if tmp_client:
+                try:
+                    await tmp_client.stop()
+                except Exception:
+                    pass
 
         ind = user.index(f'{int(event.sender_id)}')
         user.pop(int(ind))
