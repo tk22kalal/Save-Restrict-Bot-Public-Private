@@ -1,157 +1,40 @@
 import logging
-import time
 import os
 import sys
 import asyncio
 import json
-import pymongo
-import zipfile
-import requests
-import shutil
 import re
 
 from .. import bot as gagan
-from .. import userbot, Bot, AUTH, SUDO_USERS, API_ID, API_HASH
+from .. import userbot, Bot, API_ID, API_HASH
 
-from main.plugins.pyroplug import check, get_bulk_msg
-from main.plugins.helpers import get_link, screenshot
+from main.plugins.pyroplug import get_bulk_msg
+from main.plugins.helpers import get_link
 
-from telethon import events, Button, errors
-from telethon.tl.types import DocumentAttributeVideo
-
+from telethon import events, Button
 from pyrogram import Client
 from pyrogram.errors import FloodWait
 
 
-def get_user_session(user_id):
-    """Read per-user session string from JSON file (no cross-plugin import needed)."""
+# ── Per-user session helper ───────────────────────────────────────────────────
+
+def _get_user_session(user_id):
     if os.path.exists("user_sessions.json"):
         try:
-            with open("user_sessions.json", "r") as _f:
-                return json.load(_f).get(str(user_id))
+            with open("user_sessions.json") as f:
+                return json.load(f).get(str(user_id))
         except Exception:
             return None
     return None
+
+
+# ── Logging / stdout redirect ─────────────────────────────────────────────────
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 logging.getLogger("telethon").setLevel(logging.WARNING)
-
-def save_batch_data(batch_data):
-    with open("batch_data.json", "w") as f:
-        json.dump(batch_data, f)
-
-def load_batch_data():
-    if os.path.exists("batch_data.json"):
-        with open("batch_data.json", "r") as f:
-            return json.load(f)
-    else:
-        return {}
-
-batch_data = load_batch_data()
-
-def save_ids_data(ids_data):
-    with open("ids_data.json", "w") as f:
-        json.dump(ids_data, f)
-
-def load_ids_data():
-    if os.path.exists("ids_data.json"):
-        with open("ids_data.json", "r") as f:
-            return json.load(f)
-    else:
-        return {}
-
-ids_data = load_ids_data()
-
-# active_batches: user_id -> True means cancelled, False means running
-active_batches = {}
-
-
-# ── Supergroup topic helpers ────────────────────────────────────────────────────
-
-def _parse_supergroup_link(link: str):
-    """
-    Parse a supergroup topic link with an optional start-end range:
-        https://t.me/c/CHATID/TOPICID/STARTMSG
-        https://t.me/c/CHATID/TOPICID/STARTMSG-ENDMSG
-
-    Returns (chat_id_with_minus100, topic_id, start_msg, end_msg) or None.
-    end_msg == start_msg when no range is given.
-    """
-    if "t.me/c/" not in link:
-        return None
-
-    clean = link.rstrip("/")
-    parts = clean.split("/")
-    # parts: ['https:', '', 't.me', 'c', 'CHATID', 'TOPICID', 'MSGPART']
-    if len(parts) < 7:
-        return None
-
-    try:
-        chat_id = int("-100" + parts[4])
-        topic_id = int(parts[5])
-        msg_part = parts[6].replace("?single", "")
-
-        if "-" in msg_part:
-            segments = msg_part.split("-", 1)
-            start_msg = int(segments[0])
-            end_msg = int(segments[1])
-        else:
-            start_msg = int(msg_part)
-            end_msg = start_msg
-
-        return chat_id, topic_id, start_msg, end_msg
-    except (ValueError, IndexError):
-        return None
-
-
-def _is_in_topic(msg, topic_id: int) -> bool:
-    """
-    Return True if a Pyrogram message belongs to a specific supergroup topic.
-    """
-    if msg is None or getattr(msg, "empty", False):
-        return False
-    if msg.id == topic_id:
-        return True
-    top = getattr(msg, "reply_to_top_message_id", None)
-    if top == topic_id:
-        return True
-    rep = getattr(msg, "reply_to_message_id", None)
-    if rep == topic_id and top is None:
-        return True
-    return False
-
-
-# ── /cancel ─────────────────────────────────────────────────────────────────────
-
-@gagan.on(events.NewMessage(incoming=True, pattern='/cancel'))
-async def cancel_command(event):
-    user_id = event.sender_id
-    cancelled = False
-
-    # Cancel supergroup active batch
-    if active_batches.get(user_id) is False:
-        active_batches[user_id] = True
-        cancelled = True
-
-    # Cancel classic batch
-    if str(user_id) in ids_data:
-        del ids_data[str(user_id)]
-        save_ids_data(ids_data)
-        if str(user_id) in batch_data:
-            del batch_data[str(user_id)]
-            save_batch_data(batch_data)
-        cancelled = True
-
-    if cancelled:
-        await event.respond("✅ Operation cancelled.")
-    else:
-        await event.respond("There is no operation to cancel.")
-
-
-# ── Log file helpers ─────────────────────────────────────────────────────────────
 
 temp_log_file = "logs.txt"
 
@@ -161,10 +44,10 @@ if not os.path.exists(temp_log_file):
 
 
 class StreamToLogger:
-    def __init__(self, logger, log_level, log_file):
-        self.logger = logger
-        self.log_level = log_level
-        self.log_file = log_file
+    def __init__(self, lg, level, path):
+        self.logger = lg
+        self.log_level = level
+        self.log_file = path
 
     def write(self, buf):
         with open(self.log_file, 'a') as f:
@@ -185,471 +68,304 @@ for handler in logging.root.handlers[:]:
 logging.basicConfig(filename=temp_log_file, level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-stdout_logger = logging.getLogger('STDOUT')
-sl_out = StreamToLogger(stdout_logger, logging.INFO, temp_log_file)
-sys.stdout = sl_out
-
-stderr_logger = logging.getLogger('STDERR')
-sl_err = StreamToLogger(stderr_logger, logging.ERROR, temp_log_file)
-sys.stderr = sl_err
+sys.stdout = StreamToLogger(logging.getLogger('STDOUT'), logging.INFO, temp_log_file)
+sys.stderr = StreamToLogger(logging.getLogger('STDERR'), logging.ERROR, temp_log_file)
 
 
-def reset_log_file():
+def _reset_log():
     try:
-        if os.path.exists(temp_log_file):
-            os.remove(temp_log_file)
-        with open(temp_log_file, "w"):
-            pass
-        recreate_log_handlers()
-    except Exception as e:
-        print("Error resetting log file:", e)
+        open(temp_log_file, "w").close()
+    except Exception:
+        pass
 
 
-def recreate_log_handlers():
-    global sl_out, sl_err
-    stdout_logger = logging.getLogger('STDOUT')
-    sl_out = StreamToLogger(stdout_logger, logging.INFO, temp_log_file)
-    sys.stdout = sl_out
-    stderr_logger = logging.getLogger('STDERR')
-    sl_err = StreamToLogger(stderr_logger, logging.ERROR, temp_log_file)
-    sys.stderr = sl_err
-    logging.root.handlers = []
-    logging.basicConfig(filename=temp_log_file, level=logging.INFO,
-                        format='%(asctime)s - %(levelname)s - %(message)s')
-
-
-recreate_log_handlers()
-
-
-async def schedule_log_reset():
+async def _log_loop():
     while True:
         await asyncio.sleep(180)
-        reset_log_file()
+        _reset_log()
 
 
-asyncio.ensure_future(schedule_log_reset())
+asyncio.ensure_future(_log_loop())
 
+
+# ── /logs ─────────────────────────────────────────────────────────────────────
 
 @gagan.on(events.NewMessage(incoming=True, pattern='/logs'))
 async def send_log(event):
-    user_id = event.sender_id
     if os.path.exists(temp_log_file):
-        await gagan.send_file(user_id, temp_log_file,
-                              caption="Here is the log file of last 2 min.")
+        await gagan.send_file(event.sender_id, temp_log_file,
+                              caption="Log file (last 3 min).")
     else:
         await event.respond("Log file not found.")
 
 
-# ── /batch ───────────────────────────────────────────────────────────────────────
+# ── active batch tracker ──────────────────────────────────────────────────────
+# user_id → False = running, True = cancelled
+
+active_batches = {}
+
+
+# ── /cancel ───────────────────────────────────────────────────────────────────
+
+@gagan.on(events.NewMessage(incoming=True, pattern='/cancel'))
+async def cancel_command(event):
+    uid = event.sender_id
+    if active_batches.get(uid) is False:
+        active_batches[uid] = True
+        await event.respond("✅ Batch cancelled.")
+    else:
+        await event.respond("There is no running batch to cancel.")
+
+
+# ── Link parser ───────────────────────────────────────────────────────────────
+
+def _parse_link(link: str):
+    """
+    Parse any Telegram link whose last segment is START, or START-END.
+
+    Supports:
+      t.me/c/CHATID/MSGID
+      t.me/c/CHATID/MSGID-ENDMSGID
+      t.me/c/CHATID/TOPICID/MSGID
+      t.me/c/CHATID/TOPICID/MSGID-ENDMSGID
+      t.me/USERNAME/MSGID
+      t.me/USERNAME/MSGID-ENDMSGID
+
+    Returns (chat_ref, start_msg, end_msg) or None.
+      chat_ref: int (private, with -100) or str (public username)
+    """
+    clean = link.rstrip("/").split("?")[0]
+    parts = clean.split("/")
+    # parts[0]='https:', [1]='', [2]='t.me', [3]='c' or username, ...
+
+    if len(parts) < 5:
+        return None
+
+    last = parts[-1]
+    if "-" in last:
+        segs = last.split("-", 1)
+        try:
+            start_msg = int(segs[0])
+            end_msg   = int(segs[1])
+        except ValueError:
+            return None
+    else:
+        try:
+            start_msg = int(last)
+            end_msg   = start_msg
+        except ValueError:
+            return None
+
+    if "t.me/c/" in link:
+        # Private: parts[4] = CHATID, parts[5] = TOPICID or MSGID
+        try:
+            chat_ref = int("-100" + parts[4])
+        except (ValueError, IndexError):
+            return None
+        return chat_ref, start_msg, end_msg
+    else:
+        # Public: parts[3] = username (index before the message segment)
+        username = parts[-2]
+        if not username or username.lower() in ("c", "t.me", "telegram.me"):
+            return None
+        return username, start_msg, end_msg
+
+
+# ── /batch ────────────────────────────────────────────────────────────────────
 
 @gagan.on(events.NewMessage(incoming=True, pattern='/batch'))
 async def _bulk(event):
-    user_id = event.sender_id
+    uid = event.sender_id
 
-    # Block if a classic batch is already running
-    if str(user_id) in batch_data:
-        return await event.reply(
-            "You've already started one batch, wait for it to complete!"
-        )
-    # Block if a supergroup batch is already running
-    if active_batches.get(user_id) is False:
-        return await event.reply(
-            "A batch is already running. Use /cancel to stop it first."
-        )
+    if active_batches.get(uid) is False:
+        return await event.reply("A batch is already running. Use /cancel to stop it first.")
 
-    # Safe defaults — must be defined before the with-block in case of exception
-    supergroup_parsed = None
-    chat_id = topic_id = start_msg = end_msg = None
-    _link = ""
-    cd = None
+    # Safe defaults
+    parsed   = None
+    chat_ref = None
+    start_msg = end_msg = 0
 
     async with gagan.conversation(event.chat_id, timeout=120) as conv:
         try:
             await conv.send_message(
-                "Send me the message link to start from.\n\n"
-                "**Supported formats:**\n"
-                "• `t.me/c/CHATID/MSGID` — private channel\n"
-                "• `t.me/c/CHATID/TOPICID/MSGID` — supergroup topic (start only)\n"
-                "• `t.me/c/CHATID/TOPICID/STARTMSG-ENDMSG` — supergroup topic range\n"
-                "• `t.me/USERNAME/MSGID` — public channel",
+                "Send the message link with a **start–end range**.\n\n"
+                "**Examples:**\n"
+                "• `https://t.me/c/2133410746/926447-926450` — private channel\n"
+                "• `https://t.me/c/3765531856/4/23-25` — supergroup topic\n"
+                "• `https://t.me/username/100-120` — public channel\n\n"
+                "_For a single file, just send the normal link without a range._",
                 buttons=Button.force_reply()
             )
             link_msg = await conv.get_reply()
 
-            try:
-                _link = get_link(link_msg.text) or link_msg.text.strip()
-            except Exception:
-                await conv.send_message("No link found.")
-                return
+            raw = link_msg.text.strip() if link_msg.text else ""
+            _link = get_link(raw) or raw
 
             if not _link:
-                await conv.send_message("No valid link found.")
+                await conv.send_message("No valid link found. Please try /batch again.")
                 return
 
-            # Detect supergroup topic link
-            supergroup_parsed = _parse_supergroup_link(_link)
-
-            if supergroup_parsed:
-                chat_id, topic_id, start_msg, end_msg = supergroup_parsed
-
-                # If no end_msg in link, ask for it
-                if end_msg == start_msg:
-                    await conv.send_message(
-                        f"Starting message ID: `{start_msg}`\n\n"
-                        "Send the **ending message ID** (or 0 to process just this one):",
-                        buttons=Button.force_reply()
-                    )
-                    try:
-                        end_msg_reply = await conv.get_reply()
-                        end_val = int(end_msg_reply.text.strip())
-                        if end_val > 0:
-                            end_msg = end_val
-                    except Exception:
-                        await conv.send_message("Invalid end message ID. Aborting.")
-                        return
-
-                total = end_msg - start_msg + 1
-                if total < 1:
-                    await conv.send_message("End message ID must be >= start message ID.")
-                    return
-                if total > 10000:
-                    await conv.send_message("Max range is 10000 messages per batch.")
-                    return
-
-                active_batches[user_id] = False
+            parsed = _parse_link(_link)
+            if not parsed:
                 await conv.send_message(
-                    f"🚀 **Starting supergroup topic batch**\n"
-                    f"Chat: `{chat_id}` | Topic: `{topic_id}`\n"
-                    f"Range: `{start_msg}` → `{end_msg}` ({total} msg IDs)\n\n"
-                    f"Use /cancel to stop."
+                    "❌ Could not read a message range from that link.\n"
+                    "Make sure it ends like `…/START-END` (e.g. `…/100-150`)."
                 )
+                return
 
-            else:
-                # Classic batch — ask for range
-                await conv.send_message(
-                    "Send me the number of files/range you want to save from the given message.",
-                    buttons=Button.force_reply()
-                )
-                _range = await conv.get_reply()
-                try:
-                    value = int(_range.text.strip())
-                    if value > 10000:
-                        await conv.send_message(
-                            "You can only get up to 10000 files in a single batch."
-                        )
-                        return
-                    if value < 1:
-                        await conv.send_message("Range must be at least 1.")
-                        return
-                except ValueError:
-                    await conv.send_message("Range must be an integer!")
-                    return
+            chat_ref, start_msg, end_msg = parsed
+            total = end_msg - start_msg + 1
 
-                ids_data[str(user_id)] = list(range(value))
-                save_ids_data(ids_data)
+            if total < 1:
+                await conv.send_message("End ID must be ≥ start ID.")
+                return
+            if total > 10000:
+                await conv.send_message("Max range is 10 000 messages per batch.")
+                return
 
-                s, r = await check(userbot, Bot, _link)
-                if s is not True:
-                    await conv.send_message(r)
-                    del ids_data[str(user_id)]
-                    save_ids_data(ids_data)
-                    return
-
-                batch_data[str(user_id)] = True
-                save_batch_data(batch_data)
-
-                cd = await conv.send_message(
-                    "**Batch process ongoing...**\n\nProcess completed: 0"
-                )
+            active_batches[uid] = False   # mark as running
+            await conv.send_message(
+                f"🚀 **Batch starting**\n"
+                f"Chat: `{chat_ref}`\n"
+                f"Range: `{start_msg}` → `{end_msg}` ({total} messages)\n\n"
+                "Use /cancel to stop."
+            )
 
         except asyncio.TimeoutError:
-            await event.respond("Conversation timed out. Please try /batch again.")
+            await event.respond("⏳ Timed out. Please try /batch again.")
             return
         except Exception as e:
             logger.info(e)
             await event.respond(f"Error: {e}")
             return
 
-    # ── Resolve which account to use ──────────────────────────────────────────
-    user_session_str = get_user_session(user_id)
+    # ── Resolve account ───────────────────────────────────────────────────────
+    acc = userbot
     personal_acc = None
 
-    if user_session_str:
-        try:
-            personal_acc = Client(
-                f"batch_user_{user_id}",
-                session_string=user_session_str,
-                api_id=int(API_ID),
-                api_hash=API_HASH,
-                in_memory=True
-            )
-            await personal_acc.start()
-        except Exception as e:
-            await Bot.send_message(
-                user_id,
-                f"⚠️ Could not start your personal session: `{e}`\n"
-                "Falling back to global userbot."
-            )
-            personal_acc = None
-
-    acc = personal_acc if personal_acc else userbot
-
     if acc is None:
-        active_batches.pop(user_id, None)
-        batch_data.pop(str(user_id), None)
-        save_batch_data(batch_data)
-        ids_data.pop(str(user_id), None)
-        save_ids_data(ids_data)
+        sess = _get_user_session(uid)
+        if sess:
+            try:
+                personal_acc = Client(
+                    f"batch_{uid}",
+                    session_string=sess,
+                    api_id=int(API_ID),
+                    api_hash=API_HASH,
+                    in_memory=True
+                )
+                await personal_acc.start()
+                acc = personal_acc
+            except Exception as e:
+                await Bot.send_message(uid, f"⚠️ Could not start your session: `{e}`")
+                personal_acc = None
+
+    # For private channels we NEED a user account.
+    # For public channels the bot can copy directly — acc may be None.
+    if acc is None and isinstance(chat_ref, int):
+        active_batches.pop(uid, None)
         return await Bot.send_message(
-            user_id,
-            "❌ **No user session found.**\n\n"
-            "The batch needs a Telegram user account to access restricted content.\n\n"
-            "👉 Send /login to authenticate with your phone number, then try /batch again."
+            uid,
+            "❌ **No user session available.**\n\n"
+            "A Telegram user account is required to access private/restricted channels.\n"
+            "👉 Use /login to authenticate, then try /batch again."
         )
 
-    # ── Run the appropriate batch ─────────────────────────────────────────────
+    # ── Run ───────────────────────────────────────────────────────────────────
     try:
-        if supergroup_parsed:
-            await run_supergroup_topic_batch(
-                acc, Bot, user_id, chat_id, topic_id, start_msg, end_msg
-            )
-        else:
-            co = await r_batch(acc, Bot, user_id, cd, _link)
-            try:
-                if co == -2:
-                    await Bot.send_message(user_id, "✅ Batch successfully completed!")
-                    await cd.edit(
-                        f"**Batch process completed.**\n\n"
-                        f"Process completed: {value}\n\n✅ Batch successfully completed!"
-                    )
-            except Exception:
-                await Bot.send_message(
-                    user_id, "❌ ERROR! Maybe the last message didn't exist."
-                )
+        await _run_batch(acc, Bot, uid, chat_ref, start_msg, end_msg)
     finally:
         if personal_acc:
             try:
                 await personal_acc.stop()
             except Exception:
                 pass
-        active_batches.pop(user_id, None)
-        batch_data.pop(str(user_id), None)
-        save_batch_data(batch_data)
-        ids_data.pop(str(user_id), None)
-        save_ids_data(ids_data)
+        active_batches.pop(uid, None)
 
 
-# ── Classic batch runner ──────────────────────────────────────────────────────
+# ── Batch runner ──────────────────────────────────────────────────────────────
 
-async def r_batch(acc, client, sender, countdown, link):
-    for i in range(len(ids_data[str(sender)])):
-        timer = 30
+async def _run_batch(acc, client, sender, chat_ref, start_msg: int, end_msg: int):
+    total    = end_msg - start_msg + 1
+    saved    = 0
+    skipped  = 0
 
-        if i < 25:
-            timer = 20
-        elif 25 <= i < 100:
-            timer = 25
-        elif 100 <= i < 1000:
-            timer = 30
-        elif 1000 <= i < 5000:
-            timer = 35
-        elif 5000 <= i < 10000:
-            timer = 40
-        elif i >= 10000:
-            timer = 45
-
-        if 't.me/c/' not in link:
-            timer = 10 if i < 500 else 30
-
-        try:
-            integer = int(link.split("/")[-1]) + int(ids_data[str(sender)][i])
-            count_down = (
-                f"**Batch process ongoing.**\n\n"
-                f"Process completed: {i + 1}\n"
-                f"Current Msg ID: `{integer}`"
-            )
-            await get_bulk_msg(acc, client, sender, link, integer)
-            protection = await client.send_message(
-                sender,
-                f"Sleeping for `{timer}` seconds to avoid FloodWait..."
-            )
-            await countdown.edit(count_down)
-            await asyncio.sleep(timer)
-            await protection.delete()
-
-        except IndexError as ie:
-            await client.send_message(sender, f"{i} {ie}\n\nBatch ended!")
-            await countdown.delete()
-            break
-        except FloodWait as fw:
-            fw_val = int(fw.value) if hasattr(fw, 'value') else int(fw.x)
-            if fw_val > 300:
-                await client.send_message(
-                    sender,
-                    f"FloodWait of {fw_val}s — cancelling batch."
-                )
-                ids_data.pop(str(sender), None)
-                break
-            else:
-                fw_alert = await client.send_message(
-                    sender,
-                    f"Sleeping {fw_val + 15}s due to Telegram FloodWait."
-                )
-                await asyncio.sleep(fw_val + 5)
-                await fw_alert.delete()
-                try:
-                    await get_bulk_msg(acc, client, sender, link, integer)
-                except Exception as e:
-                    logger.info(e)
-                if countdown.text != count_down:
-                    await countdown.edit(count_down)
-        except Exception as e:
-            if countdown.text != count_down:
-                await countdown.edit(count_down)
-
-        n = i + 1
-        if n == len(ids_data[str(sender)]):
-            return -2
-
-
-# ── Supergroup topic batch runner ─────────────────────────────────────────────
-
-async def run_supergroup_topic_batch(
-    acc, client, sender, chat_id: int, topic_id: int, start_msg: int, end_msg: int
-):
-    """
-    Iterate message IDs from start_msg to end_msg (inclusive).
-    Skip any message that does not belong to topic_id.
-    Show the current message ID being processed.
-    """
-    total_range = end_msg - start_msg + 1
-    processed = 0
-    skipped = 0
-
-    # Live status message
-    status_msg = await client.send_message(
+    status = await client.send_message(
         sender,
-        f"🔍 **Supergroup Topic Batch Started**\n"
-        f"Chat: `{chat_id}` | Topic: `{topic_id}`\n"
-        f"Range: `{start_msg}` → `{end_msg}` ({total_range} IDs)\n\n"
+        f"🔍 **Batch in progress**\n"
+        f"Range: `{start_msg}` → `{end_msg}` ({total} IDs)\n\n"
         f"⏳ Starting..."
     )
 
     for msg_id in range(start_msg, end_msg + 1):
+
+        # Check for cancellation
         if active_batches.get(sender):
             await client.send_message(sender, "✅ Batch cancelled.")
             return
 
-        # Update live status with current msg ID
+        # Live status update
         try:
-            await status_msg.edit(
-                f"🔄 **Supergroup Topic Batch**\n"
-                f"Chat: `{chat_id}` | Topic: `{topic_id}`\n"
+            await status.edit(
+                f"🔄 **Batch in progress**\n"
                 f"Range: `{start_msg}` → `{end_msg}`\n\n"
-                f"📌 **Current Msg ID:** `{msg_id}`\n"
-                f"✅ Saved: `{processed}` | ⏭️ Skipped: `{skipped}`"
+                f"📌 **Now:** `{msg_id}`\n"
+                f"✅ Saved: `{saved}` | ⏭️ Skipped: `{skipped}`"
             )
         except Exception:
             pass
 
-        # Fetch the message
-        try:
-            msg = await acc.get_messages(chat_id, msg_id)
-        except FloodWait as fw:
-            fw_val = int(fw.value) if hasattr(fw, 'value') else int(fw.x)
-            if fw_val > 299:
-                await client.send_message(
-                    sender,
-                    f"⏳ FloodWait > 5 min ({fw_val}s). Cancelling batch."
-                )
-                return
-            fw_alert = await client.send_message(
-                sender, f"⏳ FloodWait {fw_val}s, waiting..."
-            )
-            await asyncio.sleep(fw_val + 3)
-            await fw_alert.delete()
-            try:
-                msg = await acc.get_messages(chat_id, msg_id)
-            except Exception as e:
-                logger.info(f"Supergroup batch retry error at {msg_id}: {e}")
-                skipped += 1
-                continue
-        except Exception as e:
-            logger.info(f"Supergroup batch fetch error at {msg_id}: {e}")
-            skipped += 1
-            continue
-
-        # Skip empty / service messages
-        if msg is None or getattr(msg, "empty", False):
-            skipped += 1
-            continue
-
-        # Skip messages not in this topic
-        if not _is_in_topic(msg, topic_id):
-            skipped += 1
-            continue
-
-        processed += 1
-
-        # Determine timer based on count
-        if processed < 25:
-            timer = 5
-        elif processed < 50:
-            timer = 10
+        # Build link for this message ID
+        if isinstance(chat_ref, int):
+            raw_id   = str(chat_ref).replace("-100", "")
+            link_str = f"https://t.me/c/{raw_id}/{msg_id}"
         else:
-            timer = 15
-
-        # Build a standard t.me/c link (2-segment) so get_bulk_msg parses correctly
-        raw_chat_id = str(chat_id).replace("-100", "")
-        link_str = f"https://t.me/c/{raw_chat_id}/{msg_id}"
+            link_str = f"https://t.me/{chat_ref}/{msg_id}"
 
         try:
             await get_bulk_msg(acc, client, sender, link_str, msg_id)
+            saved += 1
         except FloodWait as fw:
             fw_val = int(fw.value) if hasattr(fw, 'value') else int(fw.x)
             if fw_val > 299:
-                await client.send_message(
-                    sender, f"⏳ FloodWait > 5 min. Cancelling batch."
-                )
+                await client.send_message(sender, f"⏳ FloodWait > 5 min ({fw_val}s). Stopping batch.")
                 return
-            fw_alert = await client.send_message(
-                sender, f"⏳ FloodWait {fw_val}s, waiting..."
-            )
-            await asyncio.sleep(fw_val + 5)
-            await fw_alert.delete()
+            alert = await client.send_message(sender, f"⏳ FloodWait {fw_val}s, waiting...")
+            await asyncio.sleep(fw_val + 3)
+            await alert.delete()
             try:
                 await get_bulk_msg(acc, client, sender, link_str, msg_id)
+                saved += 1
             except Exception as e:
-                logger.info(f"Supergroup batch process error at {msg_id}: {e}")
+                logger.info(f"Retry error msg {msg_id}: {e}")
+                skipped += 1
         except Exception as e:
-            logger.info(f"Supergroup batch process error at {msg_id}: {e}")
+            logger.info(f"Error msg {msg_id}: {e}")
+            skipped += 1
 
-        # Sleep between files (skip sleep after last one)
+        # Sleep between messages (except after the last one)
         if msg_id < end_msg:
-            sleep_msg = await client.send_message(
+            wait = 5 if saved < 25 else (10 if saved < 50 else 15)
+            note = await client.send_message(
                 sender,
-                f"⏳ Sleeping `{timer}s`... "
-                f"({processed} saved / {skipped} skipped so far)"
+                f"⏳ Sleeping `{wait}s`… ({saved} saved / {skipped} skipped)"
             )
-            await asyncio.sleep(timer)
+            await asyncio.sleep(wait)
             try:
-                await sleep_msg.delete()
+                await note.delete()
             except Exception:
                 pass
 
-    # Final summary
-    if not active_batches.get(sender):
-        try:
-            await status_msg.edit(
-                f"✅ **Supergroup Topic Batch Complete!**\n"
-                f"Chat: `{chat_id}` | Topic: `{topic_id}`\n"
-                f"Range: `{start_msg}` → `{end_msg}`\n\n"
-                f"📦 **Saved:** `{processed}`\n"
-                f"⏭️ **Skipped** (other topic / empty): `{skipped}`"
-            )
-        except Exception:
-            await client.send_message(
-                sender,
-                f"✅ Supergroup topic batch done!\n"
-                f"Saved: {processed} | Skipped: {skipped}"
-            )
+    # Done
+    try:
+        await status.edit(
+            f"✅ **Batch complete!**\n"
+            f"Range: `{start_msg}` → `{end_msg}`\n\n"
+            f"📦 **Saved:** `{saved}`\n"
+            f"⏭️ **Skipped** (empty / missing): `{skipped}`"
+        )
+    except Exception:
+        await client.send_message(
+            sender,
+            f"✅ Batch done! Saved: {saved} | Skipped: {skipped}"
+        )
