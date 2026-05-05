@@ -4,6 +4,9 @@ import asyncio, time, os
 
 from pyrogram.enums import ParseMode, MessageMediaType
 
+DOWNLOADS_DIR = os.path.join(os.getcwd(), "downloads")
+os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
 from .. import Bot, bot
 from main.plugins.progress import progress_for_pyrogram
 from main.plugins.helpers import screenshot
@@ -227,6 +230,10 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n):
                         )
                     )
 
+                    if not file or not os.path.exists(str(file)) or os.path.getsize(str(file)) == 0:
+                        await client.edit_message_text(sender, edit_id, "⚠️ Download failed or file is empty, skipping.")
+                        return None
+
                     path = file
                     await edit.delete()
                     upm = await client.send_message(sender, '__Preparing to Upload!__')
@@ -248,13 +255,12 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n):
 
                         if file_n != '':
                             if '.' in file_n:
-                                path = f'/app/downloads/{file_n}'
+                                path = os.path.join(DOWNLOADS_DIR, file_n)
                             else:
-                                path = f'/app/downloads/{file_n}.' + str(file).split(".")[-1]
+                                path = os.path.join(DOWNLOADS_DIR, file_n + '.' + str(file).split(".")[-1])
                             os.rename(file, path)
                             file = path
 
-                        # Use original message thumbnail → screenshot fallback
                         thumb_path = await _get_thumb(userbot, msg, sender, file, duration)
 
                         caption = f"{msg.caption}\n\n__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__" if msg.caption else "__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__"
@@ -263,9 +269,9 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n):
                     elif str(file).split(".")[-1] in ['jpg', 'jpeg', 'png', 'webp']:
                         if file_n != '':
                             if '.' in file_n:
-                                path = f'/app/downloads/{file_n}'
+                                path = os.path.join(DOWNLOADS_DIR, file_n)
                             else:
-                                path = f'/app/downloads/{file_n}.' + str(file).split(".")[-1]
+                                path = os.path.join(DOWNLOADS_DIR, file_n + '.' + str(file).split(".")[-1])
                             os.rename(file, path)
                             file = path
                         caption = f"{msg.caption}\n\n__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__" if msg.caption else "__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__"
@@ -275,16 +281,17 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n):
                     else:
                         if file_n != '':
                             if '.' in file_n:
-                                path = f'/app/downloads/{file_n}'
+                                path = os.path.join(DOWNLOADS_DIR, file_n)
                             else:
-                                path = f'/app/downloads/{file_n}.' + str(file).split(".")[-1]
+                                path = os.path.join(DOWNLOADS_DIR, file_n + '.' + str(file).split(".")[-1])
                             os.rename(file, path)
                             file = path
                         thumb_path = "thumb.jpg"
                         caption = f"{msg.caption}\n\n__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__" if msg.caption else "__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__"
                         await send_document_with_chat_id(client, sender, path, caption, thumb_path, upm)
 
-                    os.remove(file)
+                    if os.path.exists(file):
+                        os.remove(file)
                     await upm.delete()
                     return None
                 except Exception as e:
@@ -365,6 +372,10 @@ async def ggn_new(userbot, client, sender, edit_id, msg_link, i, file_n):
                         )
                     )
 
+                    if not file or not os.path.exists(str(file)) or os.path.getsize(str(file)) == 0:
+                        await client.edit_message_text(sender, edit_id, "⚠️ Download failed or file is empty, skipping.")
+                        return None
+
                     path = file
                     await edit.delete()
                     upm = await client.send_message(sender, '__Preparing to Upload!__')
@@ -386,13 +397,12 @@ async def ggn_new(userbot, client, sender, edit_id, msg_link, i, file_n):
 
                         if file_n != '':
                             if '.' in file_n:
-                                path = f'/app/downloads/{file_n}'
+                                path = os.path.join(DOWNLOADS_DIR, file_n)
                             else:
-                                path = f'/app/downloads/{file_n}.' + str(file).split(".")[-1]
+                                path = os.path.join(DOWNLOADS_DIR, file_n + '.' + str(file).split(".")[-1])
                             os.rename(file, path)
                             file = path
 
-                        # Use original message thumbnail → screenshot fallback
                         thumb_path = await _get_thumb(userbot, msg, sender, file, duration)
 
                         caption = f"{msg.caption}\n\n__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__" if msg.caption else "__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__"
@@ -401,9 +411,9 @@ async def ggn_new(userbot, client, sender, edit_id, msg_link, i, file_n):
                     elif str(file).split(".")[-1] in ['jpg', 'jpeg', 'png', 'webp']:
                         if file_n != '':
                             if '.' in file_n:
-                                path = f'/app/downloads/{file_n}'
+                                path = os.path.join(DOWNLOADS_DIR, file_n)
                             else:
-                                path = f'/app/downloads/{file_n}.' + str(file).split(".")[-1]
+                                path = os.path.join(DOWNLOADS_DIR, file_n + '.' + str(file).split(".")[-1])
                             os.rename(file, path)
                             file = path
                         caption = f"{msg.caption}\n\n__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__" if msg.caption else "__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__"
@@ -413,16 +423,17 @@ async def ggn_new(userbot, client, sender, edit_id, msg_link, i, file_n):
                     else:
                         if file_n != '':
                             if '.' in file_n:
-                                path = f'/app/downloads/{file_n}'
+                                path = os.path.join(DOWNLOADS_DIR, file_n)
                             else:
-                                path = f'/app/downloads/{file_n}.' + str(file).split(".")[-1]
+                                path = os.path.join(DOWNLOADS_DIR, file_n + '.' + str(file).split(".")[-1])
                             os.rename(file, path)
                             file = path
                         thumb_path = "thumb.jpg"
                         caption = f"{msg.caption}\n\n__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__" if msg.caption else "__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__"
                         await send_document_with_chat_id(client, sender, path, caption, thumb_path, upm)
 
-                    os.remove(file)
+                    if os.path.exists(file):
+                        os.remove(file)
                     await upm.delete()
                     return None
                 except Exception as e:
