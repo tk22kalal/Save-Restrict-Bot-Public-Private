@@ -10,11 +10,9 @@ from pyrogram.errors import FloodWait
 
 from .. import bot as gagan
 from .. import userbot, Bot
-from .. import FORCESUB as fs
 from .. import API_ID, API_HASH
 from main.plugins.pyroplug import get_msg, ggn_new
-from main.plugins.helpers import get_link, join, screenshot
-from main.plugins.helpers import force_sub
+from main.plugins.helpers import get_link, join
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -22,7 +20,6 @@ logger = logging.getLogger(__name__)
 logging.getLogger("pyrogram").setLevel(logging.INFO)
 logging.getLogger("telethon").setLevel(logging.INFO)
 
-ft = f"To use this bot you've to join @{fs}."
 message = "Send me the message link you want to start saving from, as a reply to this message."
 
 process = []
@@ -88,11 +85,6 @@ async def clone(event):
 
         # Skip batch range links (e.g. t.me/c/CHAT/TOPIC/23-25)
         if _is_range_link(link):
-            return
-
-        s, r = await force_sub(event.client, fs, event.sender_id, ft)
-        if s is True:
-            await event.respond(r)
             return
 
         if f'{int(event.sender_id)}' in user:
@@ -168,7 +160,6 @@ async def clone(event):
                         msg_id = -1
                 m = msg_id
 
-                # Use acc (personal or global userbot) for restricted content
                 _acc = acc if acc else userbot
                 await ggn_new(_acc, Bot, event.sender_id, edit.id, link, m, file_name)
 
