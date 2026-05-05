@@ -24,17 +24,33 @@ process = []
 timer = []
 user = []
 
-# List of commands that should bypass the link check
-commands = ['/dl']  # Add other commands as needed
+# Commands that bypass the link handler entirely
+commands = ['/dl', '/batch', '/cancel', '/login', '/logout', '/mysession',
+            '/start', '/help', '/logs', '/setchat', '/remthumb', '/ivalid']
+
+
+def _is_range_link(link: str) -> bool:
+    """
+    Return True if the last URL segment looks like a batch range (e.g. 23-25).
+    These are not valid single-message links — they belong to /batch conversations.
+    """
+    last = link.rstrip("/").split("/")[-1].replace("?single", "")
+    # A range segment contains a dash between two numbers: e.g. "23-25"
+    if "-" in last:
+        parts = last.split("-", 1)
+        return parts[0].isdigit() and parts[1].isdigit()
+    return False
+
 
 @gagan.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def clone(event):
     logging.info(event)
     file_name = ''
 
-    # Check if the message starts with a command
-    if any(event.message.text.startswith(command) for command in commands):
-        # Command detected, bypass link check and do nothing
+    # Skip commands
+    if event.message.text and any(
+        event.message.text.strip().startswith(cmd) for cmd in commands
+    ):
         return
 
     if event.is_reply:
@@ -55,6 +71,11 @@ async def clone(event):
             if not link:
                 return
         except TypeError:
+            return
+
+        # Skip batch range links (e.g. t.me/c/CHAT/TOPIC/23-25)
+        # These are consumed by the /batch conversation handler, not here
+        if _is_range_link(link):
             return
 
         s, r = await force_sub(event.client, fs, event.sender_id, ft)
