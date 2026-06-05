@@ -181,8 +181,8 @@ async def _bulk(event):
         return await event.reply("A batch is already running. Use /cancel to stop it first.")
 
     # Safe defaults
-    parsed   = None
-    chat_ref = None
+    parsed    = None
+    chat_ref  = None
     start_msg = end_msg = 0
 
     async with gagan.conversation(event.chat_id, timeout=120) as conv:
@@ -261,7 +261,7 @@ async def _bulk(event):
                 personal_acc = None
 
     # For private channels we NEED a user account.
-    # For public channels the bot can copy directly — acc may be None.
+    # For public channels the bot can download directly — acc may be None.
     if acc is None and isinstance(chat_ref, int):
         active_batches.pop(uid, None)
         return await Bot.send_message(
@@ -286,9 +286,9 @@ async def _bulk(event):
 # ── Batch runner ──────────────────────────────────────────────────────────────
 
 async def _run_batch(acc, client, sender, chat_ref, start_msg: int, end_msg: int):
-    total    = end_msg - start_msg + 1
-    saved    = 0
-    skipped  = 0
+    total   = end_msg - start_msg + 1
+    saved   = 0
+    skipped = 0
 
     status = await client.send_message(
         sender,
@@ -323,7 +323,9 @@ async def _run_batch(acc, client, sender, chat_ref, start_msg: int, end_msg: int
             link_str = f"https://t.me/{chat_ref}/{msg_id}"
 
         try:
-            await get_bulk_msg(acc, client, sender, link_str, msg_id)
+            # target_override=sender ensures media always comes back to the
+            # user's DM with the bot, regardless of any /setchat setting.
+            await get_bulk_msg(acc, client, sender, link_str, msg_id, target_override=sender)
             saved += 1
         except FloodWait as fw:
             fw_val = int(fw.value) if hasattr(fw, 'value') else int(fw.x)
@@ -334,7 +336,7 @@ async def _run_batch(acc, client, sender, chat_ref, start_msg: int, end_msg: int
             await asyncio.sleep(fw_val + 3)
             await alert.delete()
             try:
-                await get_bulk_msg(acc, client, sender, link_str, msg_id)
+                await get_bulk_msg(acc, client, sender, link_str, msg_id, target_override=sender)
                 saved += 1
             except Exception as e:
                 logger.info(f"Retry error msg {msg_id}: {e}")
