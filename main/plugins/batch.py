@@ -166,25 +166,19 @@ def _parse_link(link: str):
             return None
         return chat_ref, start_msg, end_msg
     else:
-        # Public: username is at parts[-2] (before message segment)
-        # Handle both with and without topic ID
-        username = parts[-2]
+        # Public: detect optional topic ID
+        try:
+            # Check if parts[-2] is a numeric topic ID
+            int(parts[-2])
+            # Yes → the actual username is parts[-3]
+            username = parts[-3]
+        except (ValueError, IndexError):
+            # No topic ID → parts[-2] is the username
+            username = parts[-2]
         
-        # Verify it's not a reserved keyword
+        # Basic validation
         if not username or username.lower() in ("c", "t.me", "telegram.me"):
             return None
-        
-        # Check if the second-to-last part is a topic ID (numeric)
-        # If it is, use it; otherwise just use username
-        try:
-            # Try to see if parts[-3] is numeric (topic ID)
-            int(parts[-3])
-            # If we get here, parts[-3] is topic ID, so parts[-4] is username
-            if len(parts) >= 5:
-                username = parts[-4]
-        except (ValueError, IndexError):
-            # parts[-3] is not numeric, so parts[-2] is the username
-            pass
         
         return username, start_msg, end_msg
 
