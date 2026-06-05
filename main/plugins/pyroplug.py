@@ -201,10 +201,10 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n):
             if not msg.media and msg.text:
                 a = b = True
                 edit = await client.edit_message_text(sender, edit_id, "Cloning.")
-                if hasattr(msg.text, 'html') and ('--' in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html or '`' in msg.text.html):
+                if hasattr(msg.text, 'html') and ('--' in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html):
                     await send_message_with_chat_id(client, sender, msg.text.html, parse_mode=ParseMode.HTML)
                     a = False
-                if hasattr(msg.text, 'markdown') and ('<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<spoiler>' in msg.text.markdown):
+                if hasattr(msg.text, 'markdown') and ('<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<code>' in msg.text.markdown):
                     await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
                     b = False
                 if a and b:
@@ -302,11 +302,126 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n):
             await client.edit_message_text(sender, edit_id, "Bot is not in that channel/group.\nSend the invite link so the bot can join.")
             return None
     else:
+        # PUBLIC CHANNEL - Download media instead of just copying
         edit = await client.edit_message_text(sender, edit_id, "Cloning.")
         chat = msg_link.split("/")[-2]
-        await copy_message_with_chat_id(client, sender, chat, msg_id)
-        await edit.delete()
-        return None
+        file = ""
+        try:
+            msg = await client.get_messages(chat, msg_id)
+            logging.info(msg)
+            
+            if msg.service is not None:
+                await client.delete_messages(chat_id=sender, message_ids=edit_id)
+                return None
+            if msg.empty is not None:
+                await client.delete_messages(chat_id=sender, message_ids=edit_id)
+                return None
+
+            # Text-only messages from public channel
+            if not msg.media and msg.text:
+                a = b = True
+                if hasattr(msg.text, 'html') and ('--' in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html):
+                    await send_message_with_chat_id(client, sender, msg.text.html, parse_mode=ParseMode.HTML)
+                    a = False
+                if hasattr(msg.text, 'markdown') and ('<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<code>' in msg.text.markdown):
+                    await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
+                    b = False
+                if a and b:
+                    await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
+                await edit.delete()
+                return None
+
+            if msg.media == MessageMediaType.POLL:
+                await client.edit_message_text(sender, edit_id, 'poll media cant be saved')
+                return None
+
+            # Download media from public channel
+            if msg.media:
+                edit = await client.edit_message_text(sender, edit_id, "Trying to Download.")
+                try:
+                    file = await client.download_media(
+                        msg,
+                        progress=progress_for_pyrogram,
+                        progress_args=(
+                            client,
+                            "**__Downloading__: __[Team SPY](https://t.me/dev_gagan)__**\n ",
+                            edit,
+                            time.time()
+                        )
+                    )
+
+                    if not file or not os.path.exists(str(file)) or os.path.getsize(str(file)) == 0:
+                        await client.edit_message_text(sender, edit_id, "⚠️ Download failed or file is empty, skipping.")
+                        return None
+
+                    path = file
+                    await edit.delete()
+                    upm = await client.send_message(sender, '__Preparing to Upload!__')
+
+                    caption = str(file)
+                    if msg.caption is not None:
+                        caption = msg.caption
+
+                    if str(file).split(".")[-1] in ['mkv', 'mp4', 'webm', 'mpe4', 'mpeg', 'ts', 'avi', 'flv', 'org']:
+                        if str(file).split(".")[-1] in ['webm', 'mkv', 'mpe4', 'mpeg', 'ts', 'avi', 'flv', 'org']:
+                            path = str(file).split(".")[0] + ".mp4"
+                            os.rename(file, path)
+                            file = str(file).split(".")[0] + ".mp4"
+                        data = video_metadata(file)
+                        duration = data["duration"]
+                        wi = data["width"]
+                        hi = data["height"]
+                        logging.info(data)
+
+                        if file_n != '':
+                            if '.' in file_n:
+                                path = os.path.join(DOWNLOADS_DIR, file_n)
+                            else:
+                                path = os.path.join(DOWNLOADS_DIR, file_n + '.' + str(file).split(".")[-1])
+                            os.rename(file, path)
+                            file = path
+
+                        thumb_path = await _get_thumb(client, msg, sender, file, duration)
+
+                        caption = f"{msg.caption}\n\n__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__" if msg.caption else "__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__"
+                        await send_video_with_chat_id(client, sender, path, caption, duration, hi, wi, thumb_path, upm)
+
+                    elif str(file).split(".")[-1] in ['jpg', 'jpeg', 'png', 'webp']:
+                        if file_n != '':
+                            if '.' in file_n:
+                                path = os.path.join(DOWNLOADS_DIR, file_n)
+                            else:
+                                path = os.path.join(DOWNLOADS_DIR, file_n + '.' + str(file).split(".")[-1])
+                            os.rename(file, path)
+                            file = path
+                        caption = f"{msg.caption}\n\n__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__" if msg.caption else "__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__"
+                        await upm.edit("__Uploading photo...__")
+                        await bot.send_file(sender, path, caption=caption)
+
+                    else:
+                        if file_n != '':
+                            if '.' in file_n:
+                                path = os.path.join(DOWNLOADS_DIR, file_n)
+                            else:
+                                path = os.path.join(DOWNLOADS_DIR, file_n + '.' + str(file).split(".")[-1])
+                            os.rename(file, path)
+                            file = path
+                        thumb_path = "thumb.jpg"
+                        caption = f"{msg.caption}\n\n__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__" if msg.caption else "__Unrestricted by **[Team SPY](https://t.me/dev_gagan)**__"
+                        await send_document_with_chat_id(client, sender, path, caption, thumb_path, upm)
+
+                    if os.path.exists(file):
+                        os.remove(file)
+                    await upm.delete()
+                    return None
+                except Exception as e:
+                    logging.error(f"Error downloading media from public channel: {str(e)}")
+                    await client.edit_message_text(sender, edit_id, f"Could not download media: {str(e)[:100]}")
+                    return None
+        except Exception as e:
+            logging.error(f"Error accessing public channel: {str(e)}")
+            await client.edit_message_text(sender, edit_id, f"Could not access channel: {str(e)[:100]}")
+            return None
 
 
 async def get_bulk_msg(userbot, client, sender, msg_link, i):
@@ -343,10 +458,10 @@ async def ggn_new(userbot, client, sender, edit_id, msg_link, i, file_n):
             if not msg.media and msg.text:
                 a = b = True
                 edit = await client.edit_message_text(sender, edit_id, "Cloning.")
-                if hasattr(msg.text, 'html') and ('--' in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html or '`' in msg.text.html):
+                if hasattr(msg.text, 'html') and ('--' in msg.text.html or '**' in msg.text.html or '__' in msg.text.html or '~~' in msg.text.html or '||' in msg.text.html or '```' in msg.text.html):
                     await send_message_with_chat_id(client, sender, msg.text.html, parse_mode=ParseMode.HTML)
                     a = False
-                if hasattr(msg.text, 'markdown') and ('<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<spoiler>' in msg.text.markdown):
+                if hasattr(msg.text, 'markdown') and ('<b>' in msg.text.markdown or '<i>' in msg.text.markdown or '<em>' in msg.text.markdown or '<u>' in msg.text.markdown or '<s>' in msg.text.markdown or '<code>' in msg.text.markdown):
                     await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
                     b = False
                 if a and b:
