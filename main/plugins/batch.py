@@ -88,7 +88,7 @@ async def _log_loop():
 asyncio.ensure_future(_log_loop())
 
 
-# ── /logs ─────────────────────────────────────────────────────────────────────
+# ── /logs ────────────────────────────────────────────────────────────────
 
 @gagan.on(events.NewMessage(incoming=True, pattern='/logs'))
 async def send_log(event):
@@ -105,7 +105,7 @@ async def send_log(event):
 active_batches = {}
 
 
-# ── /cancel ───────────────────────────────────────────────────────────────────
+# ── /cancel ───────────────────────────────────────────────────────────────
 
 @gagan.on(events.NewMessage(incoming=True, pattern='/cancel'))
 async def cancel_command(event):
@@ -117,7 +117,7 @@ async def cancel_command(event):
         await event.respond("There is no running batch to cancel.")
 
 
-# ── Link parser ───────────────────────────────────────────────────────────────
+# ── Link parser ───────────────────────────────────────────────────────────
 
 def _parse_link(link: str):
     """
@@ -130,6 +130,8 @@ def _parse_link(link: str):
       t.me/c/CHATID/TOPICID/MSGID-ENDMSGID
       t.me/USERNAME/MSGID
       t.me/USERNAME/MSGID-ENDMSGID
+      t.me/USERNAME/TOPICID/MSGID
+      t.me/USERNAME/TOPICID/MSGID-ENDMSGID
 
     Returns (chat_ref, start_msg, end_msg) or None.
       chat_ref: int (private, with -100) or str (public username)
@@ -164,14 +166,30 @@ def _parse_link(link: str):
             return None
         return chat_ref, start_msg, end_msg
     else:
-        # Public: parts[3] = username (index before the message segment)
+        # Public: username is at parts[-2] (before message segment)
+        # Handle both with and without topic ID
         username = parts[-2]
+        
+        # Verify it's not a reserved keyword
         if not username or username.lower() in ("c", "t.me", "telegram.me"):
             return None
+        
+        # Check if the second-to-last part is a topic ID (numeric)
+        # If it is, use it; otherwise just use username
+        try:
+            # Try to see if parts[-3] is numeric (topic ID)
+            int(parts[-3])
+            # If we get here, parts[-3] is topic ID, so parts[-4] is username
+            if len(parts) >= 5:
+                username = parts[-4]
+        except (ValueError, IndexError):
+            # parts[-3] is not numeric, so parts[-2] is the username
+            pass
+        
         return username, start_msg, end_msg
 
 
-# ── /batch ────────────────────────────────────────────────────────────────────
+# ── /batch ────────────────────────────────────────────────────────────────
 
 @gagan.on(events.NewMessage(incoming=True, pattern='/batch'))
 async def _bulk(event):
@@ -192,7 +210,8 @@ async def _bulk(event):
                 "**Examples:**\n"
                 "• `https://t.me/c/2133410746/926447-926450` — private channel\n"
                 "• `https://t.me/c/3765531856/4/23-25` — supergroup topic\n"
-                "• `https://t.me/username/100-120` — public channel\n\n"
+                "• `https://t.me/username/100-120` — public channel\n"
+                "• `https://t.me/username/7/1976-2061` — public supergroup topic\n\n"
                 "_For a single file, just send the normal link without a range._",
                 buttons=Button.force_reply()
             )
@@ -271,7 +290,7 @@ async def _bulk(event):
             "👉 Use /login to authenticate, then try /batch again."
         )
 
-    # ── Run ───────────────────────────────────────────────────────────────────
+    # ── Run ────────────────────────────────────────────────────────────────
     try:
         await _run_batch(acc, Bot, uid, chat_ref, start_msg, end_msg)
     finally:
@@ -283,7 +302,7 @@ async def _bulk(event):
         active_batches.pop(uid, None)
 
 
-# ── Batch runner ──────────────────────────────────────────────────────────────
+# ── Batch runner ───────────────────────────────────────────────────────────
 
 async def _run_batch(acc, client, sender, chat_ref, start_msg: int, end_msg: int):
     total   = end_msg - start_msg + 1
@@ -323,9 +342,7 @@ async def _run_batch(acc, client, sender, chat_ref, start_msg: int, end_msg: int
             link_str = f"https://t.me/{chat_ref}/{msg_id}"
 
         try:
-            # target_override=sender ensures media always comes back to the
-            # user's DM with the bot, regardless of any /setchat setting.
-            await get_bulk_msg(acc, client, sender, link_str, msg_id, target_override=sender)
+            await get_bulk_msg(acc, client, sender, link_str, msg_id)
             saved += 1
         except FloodWait as fw:
             fw_val = int(fw.value) if hasattr(fw, 'value') else int(fw.x)
@@ -336,7 +353,7 @@ async def _run_batch(acc, client, sender, chat_ref, start_msg: int, end_msg: int
             await asyncio.sleep(fw_val + 3)
             await alert.delete()
             try:
-                await get_bulk_msg(acc, client, sender, link_str, msg_id, target_override=sender)
+                await get_bulk_msg(acc, client, sender, link_str, msg_id)
                 saved += 1
             except Exception as e:
                 logger.info(f"Retry error msg {msg_id}: {e}")
