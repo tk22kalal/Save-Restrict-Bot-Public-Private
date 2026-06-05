@@ -174,14 +174,14 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n, target_
     msg_id = int(i)
     if msg_id == -1:
         await client.edit_message_text(sender, edit_id, "**Invalid Link!**")
-        return None
+        return False   # return success flag
     if 't.me/c/' in msg_link or 't.me/b/' in msg_link:
         if userbot is None:
             await client.edit_message_text(
                 sender, edit_id,
                 "❌ No session to access this restricted channel.\nUse /login to authenticate."
             )
-            return None
+            return False
         if "t.me/b" not in msg_link:
             chat = int('-100' + str(msg_link.split("/")[-2]))
         else:
@@ -192,10 +192,11 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n, target_
             logging.info(msg)
             if msg.service is not None:
                 await client.delete_messages(chat_id=sender, message_ids=edit_id)
-                return None
-            if msg.empty is not None:
+                return False
+            # 🔧 FIXED: empty check should be a boolean test
+            if msg.empty:
                 await client.delete_messages(chat_id=sender, message_ids=edit_id)
-                return None
+                return False
 
             # Text-only messages
             if not msg.media and msg.text:
@@ -210,11 +211,11 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n, target_
                 if a and b:
                     await send_message_with_chat_id(client, sender, msg.text.markdown, parse_mode=ParseMode.MARKDOWN)
                 await edit.delete()
-                return None
+                return True
 
             if msg.media == MessageMediaType.POLL:
                 await client.edit_message_text(sender, edit_id, 'poll media cant be saved')
-                return None
+                return False
 
             if msg.media:
                 edit = await client.edit_message_text(sender, edit_id, "Trying to Download.")
@@ -232,7 +233,7 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n, target_
 
                     if not file or not os.path.exists(str(file)) or os.path.getsize(str(file)) == 0:
                         await client.edit_message_text(sender, edit_id, "⚠️ Download failed or file is empty, skipping.")
-                        return None
+                        return False
 
                     path = file
                     await edit.delete()
@@ -293,14 +294,14 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n, target_
                     if os.path.exists(file):
                         os.remove(file)
                     await upm.delete()
-                    return None
+                    return True
                 except Exception as e:
                     logging.error(f"Error downloading media: {str(e)}")
                     await client.edit_message_text(sender, edit_id, f"Could not download media: {str(e)[:100]}")
-                    return None
+                    return False
         except (ChannelBanned, ChannelInvalid, ChannelPrivate, ChatIdInvalid, ChatInvalid):
             await client.edit_message_text(sender, edit_id, "Bot is not in that channel/group.\nSend the invite link so the bot can join.")
-            return None
+            return False
 
     else:
         # ── Public channel: download & re-upload via bot ──────────────────────
@@ -314,16 +315,16 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n, target_
             msg = await client.get_messages(chat, msg_id)
         except Exception as e:
             await client.edit_message_text(sender, edit_id, f"Could not fetch message: {str(e)[:100]}")
-            return None
+            return False
 
         if msg is None or msg.empty:
             await client.delete_messages(chat_id=sender, message_ids=edit_id)
-            return None
+            return False
 
         # Service messages (pins, joins, etc.) — skip
         if getattr(msg, 'service', None) is not None:
             await client.delete_messages(chat_id=sender, message_ids=edit_id)
-            return None
+            return False
 
         # Text-only messages
         if not msg.media and msg.text:
@@ -332,11 +333,11 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n, target_
             except Exception:
                 await client.send_message(target_chat_id, str(msg.text))
             await edit.delete()
-            return None
+            return True
 
         if msg.media == MessageMediaType.POLL:
             await client.edit_message_text(sender, edit_id, 'poll media cannot be saved')
-            return None
+            return False
 
         if msg.media:
             await client.edit_message_text(sender, edit_id, "Trying to Download.")
@@ -354,7 +355,7 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n, target_
 
                 if not file or not os.path.exists(str(file)) or os.path.getsize(str(file)) == 0:
                     await client.edit_message_text(sender, edit_id, "⚠️ Download failed or file is empty, skipping.")
-                    return None
+                    return False
 
                 path = file
                 await edit.delete()
@@ -437,31 +438,31 @@ async def get_msg(userbot, client, sender, edit_id, msg_link, i, file_n, target_
                         )
                     )
 
+                if os.path.exists(file):
+                    os.remove(file)
+                await upm.delete()
+                return True
+
             except Exception as e:
                 logging.error(f"Error processing public msg {msg_id}: {str(e)}")
                 await client.send_message(sender, f"Error on msg {msg_id}: {str(e)[:100]}")
-                return None
-            finally:
-                if file and os.path.exists(str(file)):
-                    try:
-                        os.remove(file)
-                    except Exception:
-                        pass
-                if upm:
-                    try:
-                        await upm.delete()
-                    except Exception:
-                        pass
+                return False
         else:
             await edit.delete()
-
-        return None
+            return False
 
 
 async def get_bulk_msg(userbot, client, sender, msg_link, i, target_override=None):
     x = await client.send_message(sender, "Processing!")
     file_name = ''
-    await get_msg(userbot, client, sender, x.id, msg_link, i, file_name, target_override=target_override)
+    # Return the success flag from get_msg so we can count correctly
+    result = await get_msg(userbot, client, sender, x.id, msg_link, i, file_name, target_override=target_override)
+    # Clean up the "Processing!" message if it still exists
+    try:
+        await x.delete()
+    except Exception:
+        pass
+    return result
 
 
 async def ggn_new(userbot, client, sender, edit_id, msg_link, i, file_n):
@@ -484,7 +485,8 @@ async def ggn_new(userbot, client, sender, edit_id, msg_link, i, file_n):
             if msg.service is not None:
                 await client.delete_messages(chat_id=sender, message_ids=edit_id)
                 return None
-            if msg.empty is not None:
+            # 🔧 FIXED: same empty check
+            if msg.empty:
                 await client.delete_messages(chat_id=sender, message_ids=edit_id)
                 return None
 
